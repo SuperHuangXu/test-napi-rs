@@ -3,9 +3,8 @@
 #[macro_use]
 extern crate napi_derive;
 
-use napi::{CallContext, Env, JsNumber, JsObject, JsUndefined, Result, Task};
+use napi::{CallContext, Env, JsNumber, JsObject, JsUndefined, Property, Result, Task};
 use std::convert::TryInto;
-use serde_json::{from_str, to_string};
 
 #[cfg(all(
   any(windows, unix),
@@ -17,14 +16,54 @@ use serde_json::{from_str, to_string};
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[module_exports]
-fn init(mut exports: JsObject) -> Result<()> {
+fn init(mut exports: JsObject, env: Env) -> Result<()> {
   exports.create_named_method("add", add)?;
   exports.create_named_method("sync", sync_fn)?;
   exports.create_named_method("sleep", sleep)?;
   exports.create_named_method("obj", obj)?;
   exports.create_named_method("modifyObj", modify_obj)?;
   exports.create_named_method("modifyArr", modify_arr)?;
+  let test_class = env.define_class(
+    "TestClass",
+    class_constructor,
+    &[
+      Property::new(&env, "addCount")?.with_method(add_count),
+      Property::new(&env, "addNativeCount")?.with_method(add_native_count),
+    ],
+  )?;
+  exports.set_named_property("TestClass", test_class)?;
   Ok(())
+}
+
+struct TestClass {
+  value: i32,
+}
+
+#[js_function(1)]
+fn class_constructor(ctx: CallContext) -> Result<JsUndefined> {
+  let count: i32 = ctx.get::<JsNumber>(0)?.try_into()?;
+  let mut this: JsObject = ctx.this_unchecked();
+  ctx.env.wrap(&mut this, TestClass { value: count + 100 })?;
+  this.set_named_property("count", ctx.env.create_int32(count)?)?;
+  ctx.env.get_undefined()
+}
+
+#[js_function(1)]
+fn add_count(ctx: CallContext) -> Result<JsNumber> {
+  let add: i32 = ctx.get::<JsNumber>(0)?.try_into()?;
+  let mut this: JsObject = ctx.this_unchecked();
+  let count: i32 = this.get_named_property::<JsNumber>("count")?.try_into()?;
+  this.set_named_property("count", ctx.env.create_int32(count + add)?)?;
+  this.get_named_property("count")
+}
+
+#[js_function(1)]
+fn add_native_count(ctx: CallContext) -> Result<JsNumber> {
+  let add: i32 = ctx.get::<JsNumber>(0)?.try_into()?;
+  let this: JsObject = ctx.this_unchecked();
+  let test_class: &mut TestClass = ctx.env.unwrap(&this)?;
+  test_class.value += add;
+  ctx.env.create_int32(test_class.value)
 }
 
 // rust 返回 js 对象
@@ -47,10 +86,14 @@ fn modify_obj(ctx: CallContext) -> Result<JsObject> {
 
 // rust 修改数组
 #[js_function(1)]
-fn modify_arr(ctx: CallContext) -> Result<JsUndefined> {
+fn modify_arr(ctx: CallContext) -> Result<JsObject> {
   let input = ctx.get::<JsObject>(0)?;
-  let _: Vec<u32> = ctx.env.from_js_value(input)?;
-  ctx.env.get_undefined()
+  let vec: Vec<u32> = ctx.env.from_js_value(input)?;
+  let mut arr = ctx.env.create_array()?;
+  for (index, elem) in vec.iter().enumerate() {
+    arr.set_element(index as u32, ctx.env.create_int32((*elem + 100) as i32)?)?;
+  }
+  Ok(arr)
 }
 
 // 传两个参数
