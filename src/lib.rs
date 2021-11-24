@@ -3,7 +3,10 @@
 #[macro_use]
 extern crate napi_derive;
 
-use napi::{CallContext, Env, JsNumber, JsObject, JsUndefined, Property, Result, Task};
+use napi::{
+  threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunctionCallMode},
+  CallContext, Env, JsFunction, JsNumber, JsObject, JsUndefined, Property, Result, Task,
+};
 use std::convert::TryInto;
 
 #[cfg(all(
@@ -32,6 +35,7 @@ fn init(mut exports: JsObject, env: Env) -> Result<()> {
     ],
   )?;
   exports.set_named_property("TestClass", test_class)?;
+  exports.create_named_method("addCb", add_cb)?;
   Ok(())
 }
 
@@ -135,4 +139,39 @@ fn sleep(ctx: CallContext) -> Result<JsObject> {
   let task = AsyncTask(argument);
   let async_task = ctx.env.spawn(task)?;
   Ok(async_task.promise_object())
+}
+
+#[derive(Debug)]
+struct Message {
+  value: String,
+  id: i32,
+}
+
+#[js_function(1)]
+fn add_cb(ctx: CallContext) -> Result<JsUndefined> {
+  let cb = ctx.get::<JsFunction>(0)?;
+  let tscb =
+    ctx
+      .env
+      .create_threadsafe_function(&cb, 0, |tscx: ThreadSafeCallContext<Message>| {
+        let mut obj = tscx.env.create_object()?;
+        obj.set_named_property("value", tscx.env.create_string(tscx.value.value.as_str())?)?;
+        obj.set_named_property("id", tscx.env.create_int32(tscx.value.id)?)?;
+        Ok(vec![obj])
+      })?;
+  let mut count = 0;
+  loop {
+    count += 1;
+    tscb.call(
+      Ok(Message {
+        value: "hello message".to_owned(),
+        id: 13,
+      }),
+      ThreadsafeFunctionCallMode::NonBlocking,
+    );
+    if count > 10 {
+      break;
+    }
+  }
+  ctx.env.get_undefined()
 }

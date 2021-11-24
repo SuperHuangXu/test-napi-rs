@@ -1,4 +1,4 @@
-const { add, sync, sleep, obj, modifyObj, modifyArr, TestClass } = require('./index')
+const { add, sync, sleep, obj, modifyObj, modifyArr, TestClass, addCb } = require('./index')
 
 console.assert(add(1, 2) === 3, 'Add test failed')
 console.assert(sync(0) === 100, 'Simple test failed')
@@ -18,3 +18,7 @@ console.info(objClass)
 console.info(objClass.addCount(100))
 console.info(objClass.addNativeCount(100))
 console.info(objClass)
+
+addCb(function (err, params) {
+  console.info(params)
+})
